@@ -1,93 +1,264 @@
-# GameAPI
+# Game API - ASP.NET
 
+API REST desarrollada en ASP.NET Core 8.0 para gestionar usuarios y partidas de un juego (Tic-Tac-Toe) usando MongoDB.
 
+## Características
 
-## Getting started
+- Registro y gestión de usuarios (nombre, email, password)
+- Gestión de partidas de juego con estado JSON
+- Autenticación con contraseñas hasheadas (BCrypt)
+- Validación de datos
+- Documentación interactiva con Swagger
+- Arquitectura REST completa
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Pre-requisitos
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download)
+- [MongoDB](https://www.mongodb.com/try/download/community) (local o en cloud)
 
-## Add your files
+## Configuraion
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+1. Clonar o descargar el repositorio
+
+2. Configurar MongoDB
+
+Editar el archivo appsettings.json con la cadena de conexión a Mongodb:
+
+```json
+{
+  "MongoDBSettings": {
+    "ConnectionString": "mongodb://localhost:27017",
+    "DatabaseName": "GameDB"
+  }
+}
+```
+
+3. Restaurar paquetes
+
+```bash
+dotnet restore
+```
+
+4. Ejecutar la aplicación
+
+```bash
+dotnet run
+```
+
+Direccion de la API:
+
+- HTTPS: `https://localhost:58333`
+- HTTP: `http://localhost:58334`
+- Swagger UI: `https://localhost:58333/swagger`
+
+## Endpoints REST API
+
+### Users
+
+#### POST /api/Users
+Registrar un nuevo usuario
+
+Request Body:
+```json
+{
+  "name": "Jhon Doe",
+  "email": "jdoe@mail.com",
+  "password": "miPassword123"
+}
+```
+
+Response (201 Created):
+```json
+{
+  "id": "679930f8e9a1234567890abc",
+  "name": "Jhon Doe",
+  "email": "jdoe@mail.com",
+  "createdDate": "2026-01-28T04:00:00Z"
+}
+```
+
+#### GET /api/users
+Obtener todos los usuarios
+
+Response (200 OK):
+```json
+[
+  {
+    "id": "679930f8e9a1234567890abc",
+    "name": "Jhon Doe",
+    "email": "jdoe@mail.com",
+    "createdDate": "2026-01-28T04:00:00Z"
+  }
+]
+```
+
+#### GET /api/users/{id}
+Obtener un usuario por ID
+Response (200 OK):
+```json
+{
+  "id": "679930f8e9a1234567890abc",
+  "name": "Jhon Doe",
+  "email": "jdoe@mail.com",
+  "createdDate": "2026-01-28T04:00:00Z"
+}
+```
+
+#### PUT /api/users/{id}
+Actualizar un usuario:
+Request Body:
+```json
+{
+  "name": "Jhony Doe",  
+  "password": "miSecurePassword123"
+}
+```
+
+Response (204 OK)
+
+#### DELETE /api/users/{id}
+Eliminar un usuario
+
+Response (204 OK)
+
+### Partidas
+
+#### POST /api/gameplays
+Crear una nueva partida
+
+Request Body:
+```json
+{
+  "currentPositions": "{\"hostPlayerMoves\": [], \"guestPlayerMoves\": [], \"playerTurnId\": \"679930f8e9a1234567890def\", \"winnerLine\": []}",
+  "hostPlayer": "679930f8e9a1234567890abc",
+  "guestPlayer": "679930f8e9a1234567890def",
+  "playerTurn": "679930f8e9a1234567890abc",
+  "matchResult": null
+}
+```
+
+Response (201 Created):
+```json
+{
+  "id": "679931f8e9a1234567890xyz",  
+  "currentPositions": "{\"hostPlayerMoves\": [], \"guestPlayerMoves\": [], \"playerTurnId\": \"679930f8e9a1234567890def\", \"winnerLine\": []}",
+  "hostPlayer": "679930f8e9a1234567890abc",
+  "guestPlayer": "679930f8e9a1234567890def",
+  "playerTurn": "679930f8e9a1234567890abc",
+  "matchResult": null,
+  "createdDate": "2026-01-28T04:00:00Z",
+  "updatedDate": "2026-01-28T04:00:00Z"
+}
+```
+
+#### GET /api/gameplays
+Obtener todas las partidas
+
+#### GET /api/gameplays/{id}
+Obtener una partida por ID
+```json
+{
+  "id": "679931f8e9a1234567890xyz",  
+  "currentPositions": "{\"hostPlayerMoves\": [2,1,9], \"guestPlayerMoves\": [7,5,3], \"playerTurnId\": \"679930f8e9a1234567890def\", \"winnerLine\": [1,4,7]}",
+  "hostPlayer": "679930f8e9a1234567890abc",
+  "guestPlayer": "679930f8e9a1234567890def",
+  "playerTurn": "679930f8e9a1234567890abc",
+  "matchResult": null,
+  "createdDate": "2026-01-28T04:00:00Z",
+  "updatedDate": "2026-01-28T04:00:00Z"
+}
+```
+
+#### GET /api/gameplays/jugador/{jugadorId}
+Obtener todas las partidas de un jugador
+
+#### PUT /api/gameplays/{id}
+Actualizar una partida
+
+Request Body:
+```json
+{
+  "currentPositions": "{\"hostPlayerMoves\": [2,1,9], \"guestPlayerMoves\": [7,5,3], \"playerTurnId\": \"679930f8e9a1234567890def\", \"winnerLine\": [1,4,7]}",
+  "playerTurn": "679930f8e9a1234567890def",
+  "resultado": "679930f8e9a1234567890def"
+}
+```
+
+#### DELETE /api/gameplays/{id}
+Eliminar una partida
+
+## Pruebas con cURL
+
+### Registrar usuario
+```bash
+curl -X POST http://localhost:5000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Sandra Dee",
+    "email": "sandra@mail.com",
+    "password": "password123"
+  }'
+```
+
+### Crear partida
+```bash
+curl -X POST http://localhost:5000/api/gameplays \
+  -H "Content-Type: application/json" \
+  -d '{
+    "currentPositions": "{\"hostPlayerMoves\": [], \"guestPlayerMoves\": [], \"playerTurnId\": \"679930f8e9a1234567890def\", \"winnerLine\": []}",
+    "hostPlayer": "ID_USUARIO_1",
+    "guestPlayer": "ID_USUARIO_2",
+    "playerTurn": "ID_USUARIO_1"
+  }'
+```
+
+### Obtener todas las partidas
+```bash
+curl http://localhost:5000/api/partidas
+```
+
+## Estructura del Proyecto
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/jala-university1/cohort-4/ES.CO.CSNT-245.GA.T1.26.M2/SO/gameapi.git
-git branch -M main
-git push -uf origin main
+GameAPI/
+├── Controllers/
+│   ├── UsersController.cs    # Endpoints de usuarios
+│   └── GameplaysController.cs    # Endpoints de partidas
+├── Models/
+│   ├── Gameplay.cs              # Modelo de partida
+│   ├── GameplayDto.cs           # Dto de partida
+│   ├── GameplayResponseDto.cs   # Response Dto de partida
+│   ├── Login.cs                 # Modelo de Login
+│   ├── LoginResponsesDto.cs     # Response Dto de login
+│   ├── MongoDBSettings.cs       # Configuración de MongoDB
+│   ├── User.cs                  # Modelo de usuario
+│   ├── UserDto.cs               # Dto de usuario
+│   └── UserResponseDto.cs       # Response Dto de usuario
+├── Services/
+│   ├── UserService.cs           # Lógica de negocio de usuarios
+│   └── GamePlayervice.cs        # Lógica de negocio de partidas
+├── Program.cs                   # Configuración de la aplicación
+├── appsettings.json             # Configuración
+└── GameAPI.csproj               # Archivo de proyecto
 ```
 
-## Integrate with your tools
+## Seguridad
 
-* [Set up project integrations](https://gitlab.com/jala-university1/cohort-4/ES.CO.CSNT-245.GA.T1.26.M2/SO/gameapi/-/settings/integrations)
+- Las contraseñas se hashean con BCrypt antes de almacenarse
+- Validación de email único
+- Validación de formato JSON para posiciones de un juego
+- Validación de existencia de usuarios antes de crear partidas
 
-## Collaborate with your team
+## Tecnologías
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+- ASP.NET Core 8.0
+- MongoDB.Driver 2.24.0
+- BCrypt.Net-Next 4.0.3
+- Swagger/OpenAPI
 
-## Test and Deploy
+## Notas
 
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- El campo `currentPositions` acepta cualquier JSON válido para máxima flexibilidad
+- Las fechas se almacenan en formato UTC
+- Los IDs de MongoDB se generan automáticamente
+- El email se convierte a minúsculas automáticamente
