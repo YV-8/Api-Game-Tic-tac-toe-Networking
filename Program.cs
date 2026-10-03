@@ -1,5 +1,7 @@
 using GameAPI.Models;
 using GameAPI.Services;
+using GameAPI.WebSockets;
+using System.Net.WebSockets;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -11,6 +13,7 @@ builder.Services.Configure<MongoDBSettings>(
 
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<GameplayService>();
+builder.Services.AddSingleton<WebSocketConnectionManager>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"]
@@ -100,6 +103,52 @@ app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+var webSocketOptions = new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromMinutes(2)
+};
+app.UseWebSockets(webSocketOptions);
+
+app.Map("/ws", async context =>
+{
+    if (context.WebSockets.IsWebSocketRequest)
+    {
+        using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+        var wsManager = context.RequestServices.GetRequiredService<WebSocketConnectionManager>();
+        
+        var socketId = wsManager.AddSocket(webSocket);
+        Console.WriteLine($"[WS] Cliente conectado: {socketId}");
+
+        var buffer = new byte[1024 * 4];
+        var receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+
+        while (!receiveResult.CloseStatus.HasValue)
+        {
+            var message = System.Text.Encoding.UTF8.GetString(buffer, 0, receiveResult.Count);
+            Console.WriteLine($"[WS] Recibido de {socketId}: {message}");
+
+            var echoMessage = System.Text.Encoding.UTF8.GetBytes($"[Echo] {message}");
+            await webSocket.SendAsync(
+                new ArraySegment<byte>(echoMessage, 0, echoMessage.Length),
+                receiveResult.MessageType,
+                receiveResult.EndOfMessage,
+                CancellationToken.None);
+
+            receiveResult = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+        }
+
+        if (socketId != null)
+        {
+            await wsManager.RemoveSocket(socketId);
+            Console.WriteLine($"[WS] Cliente desconectado: {socketId}");
+        }
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+    }
+});
 
 app.MapControllers();
 // TODO: enable https/ssl
