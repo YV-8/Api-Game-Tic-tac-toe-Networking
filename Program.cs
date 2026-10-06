@@ -11,6 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<MongoDBSettings>(
     builder.Configuration.GetSection("MongoDBSettings"));
 
+builder.Services.AddHostedService<DatabaseInitializer>();
+
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<GameplayService>();
 builder.Services.AddSingleton<WebSocketConnectionManager>();

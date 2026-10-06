@@ -10,11 +10,14 @@ API REST desarrollada en ASP.NET Core 8.0 para gestionar usuarios y partidas de 
 - Validación de datos
 - Documentación interactiva con Swagger
 - Arquitectura REST completa
+- Esquema de base de datos versionado (validators `$jsonSchema` + índices)
+- Migraciones idempotentes ejecutables contra MongoDB
 
 ## Pre-requisitos
 
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download) (para ejecución local)
 - [MongoDB](https://www.mongodb.com/try/download/community) (local o en cloud)
+- [MongoDB Shell (`mongosh`)](https://www.mongodb.com/try/download/shell) (para ejecutar migraciones)
 - [Docker](https://docs.docker.com/get-docker/) y [Docker Compose](https://docs.docker.com/compose/install/) (para ejecución containerizada)
 
 ## Ejecución con Docker (recomendada)
@@ -41,6 +44,7 @@ Esto:
 - Descarga la imagen oficial de MongoDB 7.0.
 - Crea una red interna donde la API se conecta a MongoDB usando el hostname `mongodb`.
 - Espera a que MongoDB esté saludable (healthcheck) antes de iniciar la API.
+- Ejecuta automáticamente los scripts de `Scripts/migrations/` la primera vez que se inicializa el volumen (vía `/docker-entrypoint-initdb.d`).
 
 ### 2. Verificar el estado
 
@@ -104,6 +108,7 @@ docker compose down -v
 - Se añadió `DOTNET_SYSTEM_NET_DISABLEIPV6=1` y `links: - mongodb` para evitar problemas de resolución DNS/IPv6 en algunos entornos Linux (error `Resource temporarily unavailable`).
 - El healthcheck de MongoDB asegura que la API no intente conectarse hasta que la base de datos esté lista.
 - Los datos de MongoDB se persisten en los volúmenes `mongodb_data` y `mongodb_config`.
+- La carpeta `Scripts/migrations/` se monta como volumen de solo lectura en `/docker-entrypoint-initdb.d`, por lo que los scripts se ejecutan automáticamente en el primer arranque.
 
 ## Configuración Local (sin Docker)
 
@@ -139,6 +144,117 @@ Direcciones de la API:
 - HTTPS: `https://localhost:58333`
 - HTTP: `http://localhost:58334`
 - Swagger UI: `https://localhost:58333/swagger`
+
+La API incluye un `IHostedService` (`DatabaseInitializer`) que asegura el esquema (colecciones, validators e índices) al arrancar. No es obligatorio ejecutar la migración `.js` a mano para desarrollo local, pero sí se recomienda para entornos productivos o para migrar datos existentes.
+
+## Esquema de Base de Datos
+
+Base de datos: `GameDB`
+
+### Colección `users`
+
+| Campo           | Tipo     | Requerido | Notas                                  |
+|-----------------|----------|-----------|----------------------------------------|
+| `_id`           | ObjectId | ✅ (auto) | Generado por MongoDB                   |
+| `username`      | string   | ✅        | 3–50 caracteres, índice único          |
+| `email`         | string   | ✅        | Índice único, se almacena en minúsculas |
+| `password_hash` | string   | ✅        | Hash BCrypt (mín. 20 caracteres)       |
+| `createdDate`   | date     | ✅        | UTC                                    |
+
+Índices:
+
+- `ux_users_email` → `{ email: 1 }` (único)
+- `ux_users_username` → `{ username: 1 }` (único)
+
+### Colección `matches`
+
+| Campo         | Tipo            | Requerido | Notas                                  |
+|---------------|-----------------|-----------|----------------------------------------|
+| `_id`         | ObjectId        | ✅ (auto) | Generado por MongoDB                   |
+| `player1`     | ObjectId/string | ✅        | Jugador anfitrión (host)               |
+| `player2`     | ObjectId/string | ✅        | Jugador invitado (guest)               |
+| `board_state` | string          | ✅        | Estado del tablero serializado como JSON |
+| `status`      | enum            | ✅        | `in_progress` \| `finished` \| `abandoned` |
+| `playerTurn`  | ObjectId/string | ❌        | Jugador con el turno actual            |
+| `matchResult` | ObjectId/null   | ❌        | Ganador de la partida                  |
+| `createdDate` | date            | ✅        | UTC                                    |
+| `updatedDate` | date            | ✅        | UTC                                    |
+
+Índices:
+
+- `ix_matches_player1` → `{ player1: 1 }`
+- `ix_matches_player2` → `{ player2: 1 }`
+- `ix_matches_status` → `{ status: 1 }`
+- `ix_matches_players_status` → `{ player1: 1, player2: 1, status: 1 }`
+
+### Validators
+
+Ambas colecciones tienen un `$jsonSchema` aplicado con:
+
+- `validationLevel: "moderate"` → valida inserts y updates sobre documentos existentes que ya cumplen; no bloquea docs viejos inválidos.
+- `validationAction: "error"` → rechaza escrituras que no cumplan el esquema.
+
+## Migraciones
+
+Los scripts de migración están en `Scripts/migrations/` y se ejecutan contra MongoDB usando `mongosh`. Son **idempotentes**: se pueden ejecutar múltiples veces sin efectos adversos.
+
+### ¿Qué hace la migración `001_init_schema.js`?
+
+**Fase 1 — Migración de datos legacy** (si existían colecciones con nombres/campos antiguos):
+
+- Renombra `Users` → `users` y `Gameplays` → `matches`.
+- Renombra campos: `name` → `username`, `password` → `password_hash`, `registerDate` → `createdDate`.
+- Renombra campos en `matches`: `currentPositions` → `board_state`, `hostPlayer` → `player1`, `guestPlayer` → `player2`.
+- Deriva el campo `status` a partir de `matchResult`.
+
+**Fase 2 — Aplica los validators** `$jsonSchema` a `users` y `matches`.
+
+**Fase 3 — Crea los índices** necesarios (únicos y compuestos).
+
+### Ejecutar la migración
+
+**Opción A — Contra MongoDB local:**
+
+```bash
+mongosh "mongodb://localhost:27017/GameDB" Scripts/migrations/001_init_schema.js
+```
+
+**Opción B — Contra el contenedor Docker ya levantado:**
+
+```bash
+docker exec -i game-mongodb mongosh "mongodb://localhost:27017/GameDB" \
+  < Scripts/migrations/001_init_schema.js
+```
+
+**Opción C — Automático en el primer arranque con Docker Compose:**
+
+El `docker-compose.yml` monta `Scripts/migrations/` en `/docker-entrypoint-initdb.d`. La imagen oficial de MongoDB ejecuta todos los `*.js` de esa carpeta **solo la primera vez** que se inicializa el volumen `mongodb_data`. Si necesitas volver a ejecutarla:
+
+```bash
+# Borra el volumen de datos y vuelve a levantar
+docker compose down -v
+docker compose up --build
+```
+
+O bien, usa la Opción B sobre el contenedor ya existente.
+
+### Verificar el resultado
+
+```bash
+docker exec -it game-mongodb mongosh "mongodb://localhost:27017/GameDB" --eval "
+  print('Colecciones: ' + db.getCollectionNames());
+  print('--- Índices users ---'); printjson(db.users.getIndexes());
+  print('--- Índices matches ---'); printjson(db.matches.getIndexes());
+"
+```
+
+Deberías ver `["matches","users"]` y los índices listados.
+
+### Añadir una nueva migración
+
+1. Crea un nuevo archivo con el siguiente número secuencial, p. ej. `Scripts/migrations/002_add_field.js`.
+2. Usa el mismo patrón: `db.getSiblingDB("GameDB")`, idempotencia y `print()` para trazabilidad.
+3. Ejecuta con cualquiera de las opciones A, B o C.
 
 ## Endpoints REST API
 
@@ -333,51 +449,71 @@ curl -X POST http://localhost:5000/api/gameplays \
 curl http://localhost:5000/api/gameplays
 ```
 
+### Verificar el esquema en MongoDB
+
+```bash
+docker exec -it game-mongodb mongosh "mongodb://localhost:27017/GameDB" --eval "
+  printjson(db.users.getIndexes());
+  printjson(db.matches.getIndexes());
+"
+```
+
 ## Estructura del Proyecto
 
 ```text
 GameAPI/
 ├── Controllers/
-│   ├── UsersController.cs        # Endpoints de usuarios
-│   └── GameplaysController.cs    # Endpoints de partidas
+│   ├── UsersController.cs            # Endpoints de usuarios
+│   └── GameplaysController.cs        # Endpoints de partidas
 ├── Models/
-│   ├── Gameplay.cs               # Modelo de partida
-│   ├── GameplayDto.cs            # Dto de partida
-│   ├── GameplayResponseDto.cs    # Response Dto de partida
-│   ├── LoginDto.cs               # Modelo de Login
-│   ├── LoginResponseDto.cs       # Response Dto de login
-│   ├── MongoDBSettings.cs        # Configuración de MongoDB
-│   ├── User.cs                   # Modelo de usuario
-│   ├── UserDto.cs                # Dto de usuario
-│   └── UserResponseDto.cs        # Response Dto de usuario
+│   ├── Gameplay.cs                   # Modelo de partida
+│   ├── GameplayDto.cs                # Dto de partida
+│   ├── GameplayResponseDto.cs        # Response Dto de partida
+│   ├── LoginDto.cs                   # Modelo de Login
+│   ├── LoginResponseDto.cs           # Response Dto de login
+│   ├── MongoDBSettings.cs            # Configuración de MongoDB
+│   ├── User.cs                       # Modelo de usuario
+│   ├── UserDto.cs                    # Dto de usuario
+│   └── UserResponseDto.cs            # Response Dto de usuario
 ├── Services/
-│   ├── UserService.cs            # Lógica de negocio de usuarios
-│   └── GameplayService.cs        # Lógica de negocio de partidas
-├── Program.cs                    # Configuración de la aplicación
-├── appsettings.json              # Configuración
-├── Dockerfile                    # Imagen de la API
-├── docker-compose.yml            # Orquestación de API + MongoDB
-└── GameAPI.csproj                # Archivo de proyecto
+│   ├── UserService.cs                # Lógica de negocio de usuarios
+│   ├── GameplayService.cs            # Lógica de negocio de partidas
+│   └── DatabaseInitializer.cs        # Asegura esquema al arrancar la API
+├── Scripts/
+│   └── migrations/
+│       └── 001_init_schema.js        # Migración inicial (users + matches)
+├── WebSockets/
+│   └── WebSocketConnectionManager.cs # Manejo de conexiones WS
+├── Program.cs                        # Configuración de la aplicación
+├── appsettings.json                  # Configuración
+├── Dockerfile                        # Imagen de la API
+├── docker-compose.yml                # Orquestación de API + MongoDB
+└── GameAPI.csproj                    # Archivo de proyecto
 ```
 
 ## Seguridad
 
 - Las contraseñas se hashean con BCrypt antes de almacenarse
-- Validación de email único
+- Validación de email único (índice `ux_users_email`)
 - Validación de formato JSON para posiciones de un juego
 - Validación de existencia de usuarios antes de crear partidas
+- Esquema `$jsonSchema` aplicado a nivel de MongoDB (defensa en profundidad)
 
 ## Tecnologías
 
-- ASP.NET Core 8.0
+- ASP.NET Core 10.0
 - MongoDB.Driver 2.24.0
 - BCrypt.Net-Next 4.0.3
 - Swagger/OpenAPI
 - Docker / Docker Compose
+- MongoDB Shell (`mongosh`) para migraciones
 
 ## Notas
 
-- El campo `currentPositions` acepta cualquier JSON válido para máxima flexibilidad
+- El campo `board_state` (antes `currentPositions`) acepta cualquier JSON válido para máxima flexibilidad
 - Las fechas se almacenan en formato UTC
 - Los IDs de MongoDB se generan automáticamente
 - El email se convierte a minúsculas automáticamente
+- Los nombres de los campos en la base de datos (`username`, `password_hash`, `board_state`, etc.) pueden diferir de los nombres expuestos en la API (`name`, `password`, `currentPositions`): esto se controla vía `[BsonElement]` en los modelos, por lo que el contrato JSON con el frontend no cambia
+- Los validators están en modo `moderate` + `error`, por lo que solo afectan a nuevas escrituras que no cumplan el esquema
+- Para entornos productivos se recomienda no montar `Scripts/migrations/` en `/docker-entrypoint-initdb.d` y ejecutar las migraciones explícitamente como un paso del pipeline de despliegue
