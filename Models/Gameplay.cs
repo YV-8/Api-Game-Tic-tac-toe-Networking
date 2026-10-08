@@ -8,14 +8,14 @@ public class Gameplay
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
     public string? Id { get; set; }
-
-    [BsonElement("currentPositions")]
-    public string CurrentPositions { get; set; } = string.Empty; // JSON string
-
-    [BsonElement("hostPlayer")]
+    
+    [BsonElement("board_state")]
+    public string CurrentPositions { get; set; } = string.Empty;
+    
+    [BsonElement("player1")]
     public string HostPlayer { get; set; } = string.Empty;
-
-    [BsonElement("guestPlayer")]
+    
+    [BsonElement("player2")]
     public string? GuestPlayer { get; set; }
 
     [BsonElement("playerTurn")]
@@ -23,6 +23,9 @@ public class Gameplay
 
     [BsonElement("matchResult")]
     public string? MatchResult { get; set; }
+    
+    [BsonElement("status")]
+    public string Status { get; set; } = "in_progress";
 
     [BsonElement("createdDate")]
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
@@ -30,5 +33,3 @@ public class Gameplay
     [BsonElement("updatedDate")]
     public DateTime UpdatedDate { get; set; } = DateTime.UtcNow;
 }
-
-

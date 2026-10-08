@@ -12,9 +12,8 @@ public class UserService
     {
         var mongoClient = new MongoClient(mongoDBSettings.Value.ConnectionString);
         var mongoDatabase = mongoClient.GetDatabase(mongoDBSettings.Value.DatabaseName);
-        _usersCollection = mongoDatabase.GetCollection<User>("Users");
+        _usersCollection = mongoDatabase.GetCollection<User>("users");
         
-        // Email unique index
         var indexKeysDefinition = Builders<User>.IndexKeys.Ascending(user => user.Email);
         var indexOptions = new CreateIndexOptions { Unique = true };
         var indexModel = new CreateIndexModel<User>(indexKeysDefinition, indexOptions);
