@@ -5,6 +5,8 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using GameAPI.WebSockets;
+using Microsoft.AspNetCore.Authorization;
 
 namespace GameAPI.Controllers;
 
@@ -178,29 +180,55 @@ public class UsersController : ControllerBase
     }
 
     private string GenerarJwtToken(User user)
-    {        
+    {
         var jwtKey = _configuration["JwtSettings:SecretKey"]
-            ?? throw new InvalidOperationException("JWT SecretKey not configured");
+                     ?? throw new InvalidOperationException("JWT SecretKey not configured");
         var jwtIssuer = _configuration["JwtSettings:Issuer"] ?? "GameAPI";
         var jwtAudience = _configuration["JwtSettings:Audience"] ?? "GameAPI";
         var jwtExpireMinutes = int.Parse(_configuration["JwtSettings:ExpireMinutes"] ?? "60");
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id!),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.Name, user.Name),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()), // ID 
-            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()) // Fecha de emisión
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);        
-        var token = new JwtSecurityToken(
-            issuer: jwtIssuer,
-            audience: jwtAudience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(jwtExpireMinutes),
-            signingCredentials: credentials
-        );        
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(claims),
+            Expires = DateTime.UtcNow.AddMinutes(jwtExpireMinutes),
+            IssuedAt = DateTime.UtcNow,
+            NotBefore = DateTime.UtcNow,
+            Issuer = jwtIssuer,
+            Audience = jwtAudience,
+            SigningCredentials = credentials
+        };
+
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var token = tokenHandler.CreateToken(tokenDescriptor);
+        return tokenHandler.WriteToken(token);
+    }
+    
+    [Authorize]
+    [HttpGet("online")]
+    public async Task<ActionResult> GetOnlineUsers(
+        [FromServices] WebSocketConnectionManager wsManager,
+        [FromServices] UserService userService)
+    {
+        var onlineIds = wsManager.GetOnlineUserIds();
+        var allUsers = await userService.GetAsync();
+        var dict = allUsers.Where(u => u.Id != null).ToDictionary(u => u.Id!, u => u.Name);
+
+        var result = onlineIds.Select(id => new
+        {
+            id,
+            name = dict.TryGetValue(id, out var n) ? n : id
+        }).ToList();
+
+        return Ok(result);
     }
 }
