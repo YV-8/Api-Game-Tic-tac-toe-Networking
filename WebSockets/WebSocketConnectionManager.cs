@@ -5,40 +5,72 @@ namespace GameAPI.WebSockets
 {
     public class WebSocketConnectionManager
     {
-        private ConcurrentDictionary<string, WebSocket> _sockets = new ConcurrentDictionary<string, WebSocket>();
+        private readonly ConcurrentDictionary<string, WebSocket> _sockets = new();
+        private readonly ConcurrentDictionary<string, string> _userSockets = new();
 
-        public WebSocket? GetSocketById(string id)
-        {
-            return _sockets.FirstOrDefault(p => p.Key == id).Value;
-        }
+        public WebSocket? GetSocketById(string id) =>
+            _sockets.TryGetValue(id, out var ws) ? ws : null;
 
-        public ConcurrentDictionary<string, WebSocket> GetAll()
-        {
-            return _sockets;
-        }
+        public ConcurrentDictionary<string, WebSocket> GetAll() => _sockets;
 
-        public string? GetId(WebSocket socket)
-        {
-            return _sockets.FirstOrDefault(p => p.Value == socket).Key;
-        }
+        public string? GetId(WebSocket socket) =>
+            _sockets.FirstOrDefault(p => p.Value == socket).Key;
 
-        public string AddSocket(WebSocket socket)
+        public string AddSocket(WebSocket socket, string userId)
         {
-            string connectionId = Guid.NewGuid().ToString();
+            if (_userSockets.TryGetValue(userId, out var oldSocketId) &&
+                _sockets.TryRemove(oldSocketId, out var oldSocket))
+            {
+                if (oldSocket.State == WebSocketState.Open)
+                {
+                    _ = oldSocket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "Replaced by new connection",
+                        CancellationToken.None);
+                }
+            }
+
+            var connectionId = Guid.NewGuid().ToString();
             _sockets.TryAdd(connectionId, socket);
+            _userSockets[userId] = connectionId;
             return connectionId;
         }
 
-        public async Task RemoveSocket(string id)
-        {
-            _sockets.TryRemove(id, out var socket);
+        public string? GetSocketIdByUserId(string userId) =>
+            _userSockets.TryGetValue(userId, out var socketId) ? socketId : null;
 
-            if (socket != null && socket.State != WebSocketState.Closed && socket.State != WebSocketState.Aborted)
+        public string? GetUserIdBySocketId(string socketId) =>
+            _userSockets.FirstOrDefault(p => p.Value == socketId).Key;
+
+        public WebSocket? GetSocketByUserId(string userId)
+        {
+            var socketId = GetSocketIdByUserId(userId);
+            return socketId != null ? GetSocketById(socketId) : null;
+        }
+
+        public async Task RemoveSocket(string socketId)
+        {
+            _sockets.TryRemove(socketId, out var socket);
+            var userId = GetUserIdBySocketId(socketId);
+            if (userId != null) _userSockets.TryRemove(userId, out _);
+
+            if (socket != null &&
+                socket.State != WebSocketState.Closed &&
+                socket.State != WebSocketState.Aborted)
             {
-                await socket.CloseAsync(closeStatus: WebSocketCloseStatus.NormalClosure,
-                                        statusDescription: "Closed by the WebSocketManager",
-                                        cancellationToken: CancellationToken.None);
+                try
+                {
+                    await socket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "Closed by WebSocketManager",
+                        CancellationToken.None);
+                }
+                catch { /* ignore */ }
             }
         }
+
+        public List<string> GetOnlineUserIds() => _userSockets.Keys.ToList();
+
+        public bool IsUserOnline(string userId) => _userSockets.ContainsKey(userId);
     }
 }

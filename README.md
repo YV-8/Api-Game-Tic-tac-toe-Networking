@@ -516,4 +516,4 @@ GameAPI/
 - El email se convierte a minúsculas automáticamente
 - Los nombres de los campos en la base de datos (`username`, `password_hash`, `board_state`, etc.) pueden diferir de los nombres expuestos en la API (`name`, `password`, `currentPositions`): esto se controla vía `[BsonElement]` en los modelos, por lo que el contrato JSON con el frontend no cambia
 - Los validators están en modo `moderate` + `error`, por lo que solo afectan a nuevas escrituras que no cumplan el esquema
-- Para entornos productivos se recomienda no montar `Scripts/migrations/` en `/docker-entrypoint-initdb.d` y ejecutar las migraciones explícitamente como un paso del pipeline de despliegue
+- Para entornos productivos se recomienda no montar `Scripts/migrations/` en `/docker-entrypoint-initdb.d` y ejecutar las migraciones explícitamente como un paso del pipeline de despliegue 
