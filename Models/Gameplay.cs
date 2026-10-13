@@ -21,6 +21,9 @@ public class Gameplay
     [BsonElement("playerTurn")]
     public string PlayerTurn { get; set; } = string.Empty;
 
+    [BsonElement("orderPlay")]
+    public int OrderPlay { get; set; } = 1;
+
     [BsonElement("matchResult")]
     public string? MatchResult { get; set; }
     
