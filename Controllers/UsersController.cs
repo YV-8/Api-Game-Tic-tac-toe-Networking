@@ -16,6 +16,8 @@ public class UsersController : ControllerBase
 {
     private readonly UserService _userService;
     private readonly IConfiguration _configuration;
+    private const int BcryptWorkFactor = 11;
+    private static readonly string DummyTimingHash = BCrypt.Net.BCrypt.HashPassword("DefensaTimingAttackDummy123!", BcryptWorkFactor);
 
     public UsersController(UserService userService, IConfiguration configuration)
     {
@@ -23,6 +25,7 @@ public class UsersController : ControllerBase
         _configuration = configuration;
     }
     
+    [Authorize]
     [HttpGet]
     public async Task<ActionResult<List<UserResponseDto>>> Get()
     {
@@ -37,6 +40,7 @@ public class UsersController : ControllerBase
         return Ok(response);
     }
 
+    [Authorize]
     [HttpGet("{id}")]
     public async Task<ActionResult<UserResponseDto>> Get(string id)
     {
@@ -56,6 +60,7 @@ public class UsersController : ControllerBase
         return Ok(response);
     }
     
+    [AllowAnonymous]
     [HttpPost]
     public async Task<ActionResult<UserResponseDto>> Post([FromBody] UserDto newUserDto)
     {
@@ -64,17 +69,24 @@ public class UsersController : ControllerBase
             string.IsNullOrWhiteSpace(newUserDto.Password))
         {
             return BadRequest(new { message = "All fields are mandatory" });
-        }        
+        }
+        
+        if (newUserDto.Password.Length < 6 || newUserDto.Password.Length > 72)
+        {
+            return BadRequest(new { message = "Password must be between 6 and 72 characters" });
+        }
+
         if (!IsValidEmail(newUserDto.Email))
         {
-            return BadRequest(new { message = "Email format is invalid" });
+            return BadRequest(new { message = "Email format is invalid. Must contain '@' and a valid domain (e.g. .com, .net)" });
         }
         var existingUser = await _userService.GetByEmailAsync(newUserDto.Email);
         if (existingUser != null)
         {
             return Conflict(new { message = "Email is currently registered" });
-        }        
-        string passwordHash = BCrypt.Net.BCrypt.HashPassword(newUserDto.Password);
+        }
+
+        string passwordHash = BCrypt.Net.BCrypt.HashPassword(newUserDto.Password, BcryptWorkFactor);
         var newUser = new User
         {
             Name = newUserDto.Name,
@@ -83,6 +95,10 @@ public class UsersController : ControllerBase
             RegisterDate = DateTime.UtcNow
         };
         await _userService.CreateAsync(newUser);
+
+        // Sprint 2: Log de registro con timestamp
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_REGISTER] Usuario registrado con éxito. Email: {newUser.Email}, Id: {newUser.Id}");
+
         var response = new UserResponseDto
         {
             Id = newUser.Id!,
@@ -93,9 +109,16 @@ public class UsersController : ControllerBase
         return CreatedAtAction(nameof(Get), new { id = newUser.Id }, response);
     }
     
+    [Authorize]
     [HttpPut("{id}")]
     public async Task<IActionResult> Put(string id, [FromBody] UserDto userDto)
     {
+        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(currentUserId) || currentUserId != id)
+        {
+            return Forbid();
+        }
+
         var user = await _userService.GetAsync(id);
         if (user == null)
         {
@@ -109,21 +132,41 @@ public class UsersController : ControllerBase
         {
             if (!IsValidEmail(userDto.Email))
             {
-                return BadRequest(new { message = "Email format is invalid" });
+                return BadRequest(new { message = "Email format is invalid. Must contain '@' and a valid domain (e.g. .com, .net)" });
             }
-            user.Email = userDto.Email.ToLower();
+            var emailLower = userDto.Email.ToLower();
+            if (emailLower != user.Email)
+            {
+                var emailExists = await _userService.GetByEmailAsync(emailLower);
+                if (emailExists != null)
+                {
+                    return Conflict(new { message = "Email is currently registered by another user" });
+                }
+                user.Email = emailLower;
+            }
         }
         if (!string.IsNullOrWhiteSpace(userDto.Password))
         {
-            user.Password = BCrypt.Net.BCrypt.HashPassword(userDto.Password);
+            if (userDto.Password.Length < 6 || userDto.Password.Length > 72)
+            {
+                return BadRequest(new { message = "Password must be between 6 and 72 characters" });
+            }
+            user.Password = BCrypt.Net.BCrypt.HashPassword(userDto.Password, BcryptWorkFactor);
         }
         await _userService.UpdateAsync(id, user);
         return NoContent();
     }
     
+    [Authorize]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
     {
+        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(currentUserId) || currentUserId != id)
+        {
+            return Forbid();
+        }
+
         var user = await _userService.GetAsync(id);
         if (user == null)
         {
@@ -133,6 +176,7 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<ActionResult> Login([FromBody] LoginDto loginDto)
     {
@@ -141,16 +185,35 @@ public class UsersController : ControllerBase
         {
             return BadRequest(new { message = "Email and password are required" });
         }
+
+        if (loginDto.Password.Length > 72)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_FAILED] Contraseña excede longitud máxima para: {loginDto.Email}");
+            return Unauthorized(new { message = "Invalid credentials" });
+        }
+
         var user = await _userService.GetByEmailAsync(loginDto.Email);
-        if (user == null)
+        bool validPassword = false;
+
+        if (user != null)
         {
+            validPassword = BCrypt.Net.BCrypt.Verify(loginDto.Password, user.Password);
+        }
+        else
+        {
+            BCrypt.Net.BCrypt.Verify(loginDto.Password, DummyTimingHash);
+        }
+
+        if (user == null || !validPassword)
+        {
+            // Sprint 2: Log de login fallido con timestamp
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_FAILED] Intento fallido de login para email: {loginDto.Email}");
             return Unauthorized(new { message = "Invalid credentials" });
         }
-        bool validPassword = BCrypt.Net.BCrypt.Verify(loginDto.Password, user.Password);
-        if (!validPassword)
-        {
-            return Unauthorized(new { message = "Invalid credentials" });
-        }
+
+        // Sprint 2: Log de login exitoso con timestamp
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_SUCCESS] Login exitoso. Email: {user.Email}, Id: {user.Id}");
+
         var token = GenerarJwtToken(user);
         var response = new LoginResponseDto
         {
@@ -166,17 +229,14 @@ public class UsersController : ControllerBase
         return Ok(response);
     }
 
+    private static readonly System.Text.RegularExpressions.Regex EmailRegex =
+        new(@"^[^@\s]+@[^@\s]+\.(com|net|org|edu|gov|mil|io|es|ar|co|cl|uy|mx|pe|info|biz|[a-zA-Z]{2,})$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private bool IsValidEmail(string email)
     {
-        try
-        {
-            var addr = new System.Net.Mail.MailAddress(email);
-            return addr.Address == email;
-        }
-        catch
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        return EmailRegex.IsMatch(email.Trim());
     }
 
     private string GenerarJwtToken(User user)

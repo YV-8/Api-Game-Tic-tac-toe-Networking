@@ -19,6 +19,7 @@ public class GameplaysController : ControllerBase
         _userService = userService;
     }
 
+    [Authorize]
     [HttpGet]
     public async Task<ActionResult<List<GameplayResponseDto>>> Get()
     {
@@ -30,6 +31,7 @@ public class GameplaysController : ControllerBase
             HostPlayer = p.HostPlayer,
             GuestPlayer = p.GuestPlayer,
             PlayerTurn = p.PlayerTurn,
+            OrderPlay = p.OrderPlay,
             MatchResult = p.MatchResult,
             CreatedDate = p.CreatedDate,
             UpdatedDate = p.UpdatedDate
@@ -37,6 +39,7 @@ public class GameplaysController : ControllerBase
         return Ok(response);
     }
 
+    [Authorize]
     [HttpGet("{id}")]
     public async Task<ActionResult<GameplayResponseDto>> Get(string id)
     {
@@ -52,6 +55,7 @@ public class GameplaysController : ControllerBase
             HostPlayer = gameplay.HostPlayer,
             GuestPlayer = gameplay.GuestPlayer,
             PlayerTurn= gameplay.PlayerTurn,
+            OrderPlay = gameplay.OrderPlay,
             MatchResult = gameplay.MatchResult,
             CreatedDate = gameplay.CreatedDate,
             UpdatedDate = gameplay.UpdatedDate
@@ -76,6 +80,7 @@ public class GameplaysController : ControllerBase
             HostPlayer = gameplay.HostPlayer,
             GuestPlayer= gameplay.GuestPlayer,
             PlayerTurn = gameplay.PlayerTurn,
+            OrderPlay = gameplay.OrderPlay,
             MatchResult = gameplay.MatchResult,
             CreatedDate = gameplay.CreatedDate,
             UpdatedDate = gameplay.UpdatedDate
@@ -83,6 +88,7 @@ public class GameplaysController : ControllerBase
         return Ok(response);
     }
 
+    [Authorize]
     [HttpGet("player/{playerId}")]
     public async Task<ActionResult<List<GameplayResponseDto>>> GetByPlayer(string playerId)
     {
@@ -94,6 +100,7 @@ public class GameplaysController : ControllerBase
             HostPlayer= gameplay.HostPlayer,
             GuestPlayer = gameplay.GuestPlayer,
             PlayerTurn = gameplay.PlayerTurn,
+            OrderPlay = gameplay.OrderPlay,
             MatchResult = gameplay.MatchResult,
             CreatedDate = gameplay.CreatedDate,
             UpdatedDate = gameplay.UpdatedDate
@@ -145,12 +152,16 @@ public class GameplaysController : ControllerBase
             HostPlayer = newGameplayDto.HostPlayer,
             GuestPlayer = newGameplayDto.GuestPlayer,
             PlayerTurn = newGameplayDto.PlayerTurn,
+            OrderPlay = newGameplayDto.OrderPlay != 0 ? newGameplayDto.OrderPlay : 1,
             MatchResult = newGameplayDto.MatchResult,
             CreatedDate = DateTime.UtcNow,
             UpdatedDate = DateTime.UtcNow
         };
 
         await _gameplayService.CreateAsync(newGameplay);
+
+        // Sprint 2: Log de creación de partida con timestamp
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [GAMEPLAY_CREATED] Partida creada: {newGameplay.Id} (Host: {newGameplay.HostPlayer}, Guest: {newGameplay.GuestPlayer ?? "N/A"})");
         var response = new GameplayResponseDto
         {
             Id = newGameplay.Id!,
@@ -158,6 +169,7 @@ public class GameplaysController : ControllerBase
             HostPlayer = newGameplay.HostPlayer,
             GuestPlayer = newGameplay.GuestPlayer,
             PlayerTurn = newGameplay.PlayerTurn,
+            OrderPlay = newGameplay.OrderPlay,
             MatchResult = newGameplay.MatchResult,
             CreatedDate = newGameplay.CreatedDate,
             UpdatedDate = newGameplay.UpdatedDate
@@ -206,15 +218,22 @@ public class GameplaysController : ControllerBase
             gameplay.PlayerTurn = gameplayDto.PlayerTurn;
         }
 
+        if (gameplayDto.OrderPlay != 0)
+        {
+            gameplay.OrderPlay = gameplayDto.OrderPlay;
+        }
+
         if (!string.IsNullOrWhiteSpace(gameplayDto.MatchResult))
         {
             gameplay.MatchResult = gameplayDto.MatchResult;
         }
 
         await _gameplayService.UpdateAsync(id, gameplay);
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [GAMEPLAY_UPDATED] Partida {id} actualizada por jugador {userIdToken}");
         return NoContent();
     }
     
+    [Authorize]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
     {
