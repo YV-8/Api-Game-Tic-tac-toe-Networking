@@ -156,7 +156,7 @@ app.Map("/ws", async context =>
 
         if (!validationResult.IsValid)
         {
-            Console.WriteLine($"[WS] Token inválido: {validationResult.Exception?.Message}");
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_AUTH_FAILED] Token inválido: {validationResult.Exception?.Message}");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
@@ -166,7 +166,7 @@ app.Map("/ws", async context =>
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[WS] Token inválido: {ex.Message}");
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_AUTH_FAILED] Error validando token: {ex.Message}");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return;
     }
@@ -181,7 +181,7 @@ app.Map("/ws", async context =>
     var wsManager = context.RequestServices.GetRequiredService<WebSocketConnectionManager>();
     var socketId = wsManager.AddSocket(webSocket, userId);
 
-    Console.WriteLine($"[WS] Usuario {userId} conectado (socket {socketId})");
+    Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_CONNECT] Usuario {userId} conectado (socket {socketId})");
     
     await SendToUser(userId, new { type = "welcome", userId }, wsManager);
     
@@ -198,7 +198,7 @@ app.Map("/ws", async context =>
         while (!receiveResult.CloseStatus.HasValue)
         {
             var message = Encoding.UTF8.GetString(buffer, 0, receiveResult.Count);
-            Console.WriteLine($"[WS] De {userId}: {message}");
+            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_MSG] De {userId}: {message}");
 
             await HandleWebSocketMessage(userId, message, wsManager, userService);
 
@@ -209,20 +209,20 @@ app.Map("/ws", async context =>
     catch (WebSocketException ex)
     {
         // El cliente cerró abruptamente
-        Console.WriteLine($"[WS] Conexión de {userId} cerrada abruptamente ({ex.WebSocketErrorCode})");
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_DISCONNECT] Conexión de {userId} cerrada abruptamente ({ex.WebSocketErrorCode})");
     }
     catch (OperationCanceledException)
     {
-        Console.WriteLine($"[WS] Operación cancelada para {userId}");
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_DISCONNECT] Operación cancelada para {userId}");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[WS] Error inesperado para {userId}: {ex.Message}");
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_ERROR] Error inesperado para {userId}: {ex.Message}");
     }
     finally
     {
         await wsManager.RemoveSocket(socketId);
-        Console.WriteLine($"[WS] Usuario {userId} desconectado");
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_DISCONNECT] Usuario {userId} desconectado");
         await BroadcastOnlineUsers(wsManager, userService);
     }
 });
@@ -315,6 +315,8 @@ static async Task HandleWebSocketMessage(
                 await SendToUser(userId, new { type = "pong", timestamp = DateTime.UtcNow }, wsManager);
                 break;
 
+            // Sprint 2: Mensaje list_users (y request_online_users para retrocompatibilidad)
+            case "list_users":
             case "request_online_users":
                 var onlineIds = wsManager.GetOnlineUserIds();
                 var allUsers = await userService.GetAsync();
@@ -328,6 +330,118 @@ static async Task HandleWebSocketMessage(
                         name = dict.TryGetValue(id, out var n) ? n : id
                     }).ToList()
                 }, wsManager);
+                break;
+
+            case "invite_player":
+                if (root.TryGetProperty("targetUserId", out var targetProp))
+                {
+                    var targetUserId = targetProp.GetString();
+                    if (!string.IsNullOrEmpty(targetUserId))
+                    {
+                        var hostUser = await userService.GetAsync(userId);
+                        var hostName = hostUser?.Name ?? userId;
+                        var matchId = root.TryGetProperty("matchId", out var matchProp) ? matchProp.GetString() : null;
+
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_INVITE] Usuario {userId} ({hostName}) invitó a {targetUserId} a jugar");
+                        await SendToUser(targetUserId, new
+                        {
+                            type = "game_invitation",
+                            hostId = userId,
+                            hostName,
+                            matchId
+                        }, wsManager);
+                    }
+                }
+                break;
+
+            case "accept_invite":
+                if (root.TryGetProperty("hostId", out var hostProp))
+                {
+                    var hostId = hostProp.GetString();
+                    var matchId = root.TryGetProperty("matchId", out var mProp) ? mProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(hostId))
+                    {
+                        var guestUser = await userService.GetAsync(userId);
+                        var guestName = guestUser?.Name ?? userId;
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_INVITE_ACCEPTED] Usuario {userId} ({guestName}) aceptó la partida de {hostId}");
+                        await SendToUser(hostId, new
+                        {
+                            type = "invite_accepted",
+                            guestId = userId,
+                            guestName,
+                            matchId
+                        }, wsManager);
+                    }
+                }
+                break;
+
+            case "reject_invite":
+                if (root.TryGetProperty("hostId", out var rHostProp))
+                {
+                    var hostId = rHostProp.GetString();
+                    if (!string.IsNullOrEmpty(hostId))
+                    {
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_INVITE_REJECTED] Usuario {userId} rechazó la invitación de {hostId}");
+                        await SendToUser(hostId, new
+                        {
+                            type = "invite_rejected",
+                            fromUserId = userId
+                        }, wsManager);
+                    }
+                }
+                break;
+
+            case "cancel_invite":
+                if (root.TryGetProperty("targetUserId", out var cancelProp))
+                {
+                    var targetUserId = cancelProp.GetString();
+                    if (!string.IsNullOrEmpty(targetUserId))
+                    {
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_INVITE_CANCELLED] Usuario {userId} canceló la invitación a {targetUserId}");
+                        await SendToUser(targetUserId, new
+                        {
+                            type = "invite_cancelled",
+                            fromUserId = userId
+                        }, wsManager);
+                    }
+                }
+                break;
+
+            case "game_move":
+                if (root.TryGetProperty("targetUserId", out var moveTargetProp) &&
+                    root.TryGetProperty("position", out var posProp))
+                {
+                    var targetUserId = moveTargetProp.GetString();
+                    var position = posProp.GetInt32();
+                    var orderPlay = root.TryGetProperty("orderPlay", out var ordProp) ? ordProp.GetInt32() : 0;
+                    if (!string.IsNullOrEmpty(targetUserId))
+                    {
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_MOVE] Jugada de {userId} en pos {position} (orderPlay: {orderPlay}) para {targetUserId}");
+                        await SendToUser(targetUserId, new
+                        {
+                            type = "opponent_move",
+                            fromUserId = userId,
+                            position,
+                            orderPlay
+                        }, wsManager);
+                    }
+                }
+                break;
+
+            case "reset_game":
+                if (root.TryGetProperty("targetUserId", out var resetTargetProp))
+                {
+                    var targetUserId = resetTargetProp.GetString();
+                    if (!string.IsNullOrEmpty(targetUserId))
+                    {
+                        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_RESET] Partida reiniciada por {userId} para {targetUserId}");
+                        await SendToUser(targetUserId, new
+                        {
+                            type = "game_reset",
+                            fromUserId = userId
+                        }, wsManager);
+                    }
+                }
                 break;
 
             default:
