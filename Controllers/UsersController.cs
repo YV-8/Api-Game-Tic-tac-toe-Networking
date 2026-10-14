@@ -95,8 +95,6 @@ public class UsersController : ControllerBase
             RegisterDate = DateTime.UtcNow
         };
         await _userService.CreateAsync(newUser);
-
-        // Sprint 2: Log de registro con timestamp
         Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_REGISTER] Usuario registrado con éxito. Email: {newUser.Email}, Id: {newUser.Id}");
 
         var response = new UserResponseDto
@@ -132,18 +130,9 @@ public class UsersController : ControllerBase
         {
             if (!IsValidEmail(userDto.Email))
             {
-                return BadRequest(new { message = "Email format is invalid. Must contain '@' and a valid domain (e.g. .com, .net)" });
+                return BadRequest(new { message = "Email format is invalid" });
             }
-            var emailLower = userDto.Email.ToLower();
-            if (emailLower != user.Email)
-            {
-                var emailExists = await _userService.GetByEmailAsync(emailLower);
-                if (emailExists != null)
-                {
-                    return Conflict(new { message = "Email is currently registered by another user" });
-                }
-                user.Email = emailLower;
-            }
+            user.Email = userDto.Email.ToLower();
         }
         if (!string.IsNullOrWhiteSpace(userDto.Password))
         {
@@ -188,7 +177,6 @@ public class UsersController : ControllerBase
 
         if (loginDto.Password.Length > 72)
         {
-            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_FAILED] Contraseña excede longitud máxima para: {loginDto.Email}");
             return Unauthorized(new { message = "Invalid credentials" });
         }
 
@@ -206,13 +194,8 @@ public class UsersController : ControllerBase
 
         if (user == null || !validPassword)
         {
-            // Sprint 2: Log de login fallido con timestamp
-            Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_FAILED] Intento fallido de login para email: {loginDto.Email}");
             return Unauthorized(new { message = "Invalid credentials" });
         }
-
-        // Sprint 2: Log de login exitoso con timestamp
-        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [USER_LOGIN_SUCCESS] Login exitoso. Email: {user.Email}, Id: {user.Id}");
 
         var token = GenerarJwtToken(user);
         var response = new LoginResponseDto
@@ -229,14 +212,17 @@ public class UsersController : ControllerBase
         return Ok(response);
     }
 
-    private static readonly System.Text.RegularExpressions.Regex EmailRegex =
-        new(@"^[^@\s]+@[^@\s]+\.(com|net|org|edu|gov|mil|io|es|ar|co|cl|uy|mx|pe|info|biz|[a-zA-Z]{2,})$",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
     private bool IsValidEmail(string email)
     {
-        if (string.IsNullOrWhiteSpace(email)) return false;
-        return EmailRegex.IsMatch(email.Trim());
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == email;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private string GenerarJwtToken(User user)
