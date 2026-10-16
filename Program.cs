@@ -49,8 +49,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { 
-        Title = "Game API", 
+    c.SwaggerDoc("v1", new()
+    {
+        Title = "Game API",
         Version = "v1",
         Description = "API REST for user and gameplay basic management"
     });
@@ -88,8 +89,8 @@ builder.Services.AddCors(options =>
         builder =>
         {
             builder.AllowAnyOrigin()
-                   .AllowAnyMethod()
-                   .AllowAnyHeader();
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
         });
 });
 
@@ -100,9 +101,8 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseHttpsRedirection();
 }
-
-app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
@@ -160,9 +160,9 @@ app.Map("/ws", async context =>
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
-        
+
         userId = validationResult.ClaimsIdentity.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-                 ?? validationResult.ClaimsIdentity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                ?? validationResult.ClaimsIdentity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
     }
     catch (Exception ex)
     {
@@ -182,9 +182,9 @@ app.Map("/ws", async context =>
     var socketId = wsManager.AddSocket(webSocket, userId);
 
     Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss UTC}] [WS_CONNECT] Usuario {userId} conectado (socket {socketId})");
-    
+
     await SendToUser(userId, new { type = "welcome", userId }, wsManager);
-    
+
     var userService = context.RequestServices.GetRequiredService<UserService>();
     await BroadcastOnlineUsers(wsManager, userService);
 
@@ -256,7 +256,7 @@ static async Task BroadcastOnlineUsers(
     UserService userService)
 {
     var onlineIds = wsManager.GetOnlineUserIds();
-    
+
     var allUsers = await userService.GetAsync();
     var usersDict = allUsers
         .Where(u => u.Id != null)
@@ -291,9 +291,9 @@ static async Task BroadcastOnlineUsers(
 }
 
 static async Task HandleWebSocketMessage(
-    string userId, 
-    string rawMessage, 
-    WebSocketConnectionManager wsManager, 
+    string userId,
+    string rawMessage,
+    WebSocketConnectionManager wsManager,
     UserService userService)
 {
     try
